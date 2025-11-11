@@ -13,7 +13,6 @@ export function validateEnv() {
   dotenv.config();
   
   const requiredVars = {
-    MONGODB_URI: process.env.MONGODB_URI || 'mongodb://localhost:27017/shiftaid',
     SIDESHIFT_SECRET: process.env.SIDESHIFT_SECRET,
   };
 
@@ -23,6 +22,9 @@ export function validateEnv() {
     AFFILIATE_ID: process.env.AFFILIATE_ID || process.env.SIDESHIFT_AFFILIATE_ID,
     FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000',
     NODE_ENV: process.env.NODE_ENV || 'development',
+    USE_SUPABASE: process.env.USE_SUPABASE || 'false',
+    SUPABASE_URL: process.env.SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE: process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_SERVICE_ROLE_KEY,
   };
 
   const missing = [];
@@ -31,7 +33,6 @@ export function validateEnv() {
   // Log all variables (without sensitive data)
   console.log('\n📋 Environment Configuration:');
   console.log('   Required:');
-  console.log(`   ✅ MONGODB_URI: ${requiredVars.MONGODB_URI ? 'Set' : 'Missing'}`);
   console.log(`   ${requiredVars.SIDESHIFT_SECRET ? '✅' : '⚠️ '} SIDESHIFT_SECRET: ${requiredVars.SIDESHIFT_SECRET ? 'Set' : 'Missing'}`);
   console.log('   Optional:');
   console.log(`   📌 PORT: ${optionalVars.PORT}`);
@@ -39,6 +40,22 @@ export function validateEnv() {
   console.log(`   📌 AFFILIATE_ID: ${optionalVars.AFFILIATE_ID ? 'Set' : 'Not set'}`);
   console.log(`   📌 FRONTEND_URL: ${optionalVars.FRONTEND_URL}`);
   console.log(`   📌 NODE_ENV: ${optionalVars.NODE_ENV}`);
+  console.log(`   📌 USE_SUPABASE: ${optionalVars.USE_SUPABASE}`);
+  if (optionalVars.USE_SUPABASE === 'true' || optionalVars.SUPABASE_URL) {
+    const hasServiceRole = optionalVars.SUPABASE_SERVICE_ROLE && 
+                          !optionalVars.SUPABASE_SERVICE_ROLE.includes('PASTE') &&
+                          optionalVars.SUPABASE_SERVICE_ROLE.length > 20;
+    console.log(`   ${optionalVars.SUPABASE_URL ? '✅' : '❌'} SUPABASE_URL`);
+    console.log(`   ${hasServiceRole ? '✅' : '⚠️ '} SUPABASE_SERVICE_ROLE: ${hasServiceRole ? 'Set' : 'Not set (using placeholder)'}`);
+    if (!optionalVars.SUPABASE_URL) {
+      console.error('❌ Supabase URL is missing');
+      throw new Error('Supabase configuration incomplete: SUPABASE_URL is required');
+    }
+    if (!hasServiceRole) {
+      console.warn('⚠️  SUPABASE_SERVICE_ROLE is not set. Please update .env with your Service Role key from Supabase Dashboard.');
+      console.warn('⚠️  Backend will start but database operations will fail until this is configured.');
+    }
+  }
 
   // Check required variables after logging
   if (!requiredVars.SIDESHIFT_SECRET) {

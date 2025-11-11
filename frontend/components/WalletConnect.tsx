@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 export function WalletConnect() {
   const [mounted, setMounted] = useState(false);
   const { address, isConnected } = useAccount();
-  const { connect, connectors, isPending } = useConnect();
+  const { connect, connectors, isPending, error: connectError } = useConnect();
   const { disconnect } = useDisconnect();
 
   useEffect(() => {
@@ -36,19 +36,51 @@ export function WalletConnect() {
     );
   }
 
-  return (
-    <div className="flex gap-2">
-      {connectors.map((connector) => (
+  // Check if any connectors are available
+  if (connectors.length === 0) {
+    return (
+      <div className="flex items-center gap-2">
         <Button
-          key={connector.uid}
-          onClick={() => connect({ connector })}
-          disabled={isPending}
+          variant="outline"
           size="sm"
+          onClick={() => {
+            window.open('https://metamask.io/download/', '_blank');
+          }}
         >
           <Wallet className="h-4 w-4 mr-2" />
-          {isPending ? 'Connecting...' : 'Connect Wallet'}
+          Install MetaMask
         </Button>
-      ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {connectError && (
+        <div className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded">
+          {connectError.message || 'Connection failed. Please try again.'}
+        </div>
+      )}
+      <div className="flex gap-2">
+        {connectors.map((connector) => (
+          <Button
+            key={connector.uid}
+            onClick={() => {
+              try {
+                connect({ connector });
+              } catch (error: any) {
+                console.error('Connection error:', error);
+                alert(error?.message || 'Failed to connect wallet. Please make sure MetaMask is installed and unlocked.');
+              }
+            }}
+            disabled={isPending}
+            size="sm"
+          >
+            <Wallet className="h-4 w-4 mr-2" />
+            {isPending ? 'Connecting...' : `Connect ${connector.name || 'Wallet'}`}
+          </Button>
+        ))}
+      </div>
     </div>
   );
 }

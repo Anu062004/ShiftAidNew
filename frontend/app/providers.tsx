@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiProvider, createConfig, http } from 'wagmi';
 import { polygonAmoy } from 'wagmi/chains';
-import { injected } from 'wagmi/connectors';
+import { injected, metaMask } from 'wagmi/connectors';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { useState, useEffect, useMemo } from 'react';
 
@@ -29,9 +29,28 @@ export function Providers({ children }: { children: React.ReactNode }) {
       return null;
     }
     
+    // Try to add multiple connectors for better wallet support
+    const connectorsList = [];
+    
+    // Add MetaMask connector if available
+    try {
+      if (typeof window !== 'undefined' && (window as any).ethereum) {
+        connectorsList.push(metaMask());
+      }
+    } catch (e) {
+      console.warn('MetaMask connector not available:', e);
+    }
+    
+    // Add injected connector as fallback
+    try {
+      connectorsList.push(injected());
+    } catch (e) {
+      console.warn('Injected connector not available:', e);
+    }
+    
     return createConfig({
       chains: [polygonAmoy],
-      connectors: [injected()],
+      connectors: connectorsList.length > 0 ? connectorsList : [injected()],
       transports: {
         [polygonAmoy.id]: http(process.env.NEXT_PUBLIC_POLYGON_RPC_URL || 'https://rpc-amoy.polygon.technology'),
       },

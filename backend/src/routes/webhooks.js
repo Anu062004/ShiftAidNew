@@ -1,7 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
-import Donation from '../models/Donation.js';
-import NGO from '../models/NGO.js';
+import { Donations, NGOs } from '../db/adapter.js';
 import { getOrder } from '../config/sideshift.js';
 import { logDonationOnChain } from '../utils/blockchain.js';
 
@@ -39,7 +38,7 @@ router.post('/sideshift', express.raw({ type: 'application/json' }), async (req,
       }
 
       // Find donation by SideShift order ID
-      const donation = await Donation.findOne({ sideshiftOrderId: orderId });
+      const donation = await Donations.findByOrderId(orderId);
       if (!donation) {
         console.warn(`Donation not found for order ID: ${orderId}`);
         return res.status(404).json({ error: 'Donation not found' });
@@ -49,30 +48,33 @@ router.post('/sideshift', express.raw({ type: 'application/json' }), async (req,
       const order = await getOrder(orderId);
 
       // Update donation status
-      donation.status = mapSideshiftStatus(order.status);
-      donation.depositTxHash = order.depositTxHash;
-      donation.settleTxHash = order.settleTxHash;
+      const updatedDonation = await Donations.update(donation.id, {
+        status: mapSideshiftStatus(order.status),
+        depositTxHash: order.depositTxHash || null,
+        settleTxHash: order.settleTxHash || null,
+      });
 
       // If completed, log on-chain and update NGO stats
-      if (donation.status === 'completed') {
+      if (updatedDonation.status === 'completed') {
         try {
           // Log donation on-chain
           const onChainTxHash = await logDonationOnChain({
-            donorAddress: donation.donorAddress,
-            ngoAddress: donation.settleAddress,
-            amount: donation.settleAmount,
-            coin: donation.settleCoin,
-            sideshiftOrderId: donation.sideshiftOrderId,
+            donorAddress: updatedDonation.donorAddress,
+            ngoAddress: updatedDonation.settleAddress,
+            amount: updatedDonation.settleAmount,
+            coin: updatedDonation.settleCoin,
+            sideshiftOrderId: updatedDonation.sideshiftOrderId,
           });
 
-          donation.onChainTxHash = onChainTxHash;
+          await Donations.update(updatedDonation.id, { onChainTxHash });
 
           // Update NGO donation stats
-          const ngo = await NGO.findById(donation.ngoId);
+          const ngo = await NGOs.getById(updatedDonation.ngoId);
           if (ngo) {
-            ngo.totalDonations += parseFloat(donation.settleAmount) || 0;
-            ngo.donationCount += 1;
-            await ngo.save();
+            await NGOs.update(ngo.id, {
+              totalDonations: (parseFloat(ngo.totalDonations) || 0) + parseFloat(updatedDonation.settleAmount || 0),
+              donationCount: (ngo.donationCount || 0) + 1,
+            });
           }
         } catch (error) {
           console.error('Error logging donation on-chain:', error);
@@ -80,9 +82,7 @@ router.post('/sideshift', express.raw({ type: 'application/json' }), async (req,
         }
       }
 
-      await donation.save();
-
-      res.json({ success: true, donation: donation.toObject() });
+      res.json({ success: true, donation: updatedDonation });
     } else {
       res.json({ success: true, message: 'Event type not handled' });
     }

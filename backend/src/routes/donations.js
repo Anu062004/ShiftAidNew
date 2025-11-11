@@ -1,7 +1,6 @@
 import express from 'express';
 import { body, param, query, validationResult } from 'express-validator';
-import Donation from '../models/Donation.js';
-import NGO from '../models/NGO.js';
+import { Donations, NGOs } from '../db/adapter.js';
 import { createOrder, getOrder } from '../config/sideshift.js';
 import { logDonationOnChain } from '../utils/blockchain.js';
 
@@ -11,7 +10,7 @@ const router = express.Router();
 router.post(
   '/',
   [
-    body('ngoId').isMongoId().withMessage('Invalid NGO ID'),
+    body('ngoId').isString().withMessage('Invalid NGO ID'),
     body('depositCoin').notEmpty().withMessage('Deposit coin is required'),
     body('settleCoin').notEmpty().withMessage('Settle coin is required'),
     body('donorAddress').isEthereumAddress().withMessage('Invalid donor address'),
@@ -28,7 +27,7 @@ router.post(
       const { ngoId, depositCoin, settleCoin, donorAddress, depositAmount, settleAmount } = req.body;
 
       // Verify NGO exists and is verified
-      const ngo = await NGO.findById(ngoId);
+      const ngo = await NGOs.getById(ngoId);
       if (!ngo) {
         return res.status(404).json({ error: 'NGO not found' });
       }
@@ -92,7 +91,7 @@ router.post(
       }
 
       // Create donation record
-      const donation = new Donation({
+      const donation = await Donations.create({
         donorAddress,
         ngoId,
         sideshiftOrderId: sideshiftOrder.id,
@@ -110,10 +109,8 @@ router.post(
         },
       });
 
-      await donation.save();
-
       res.status(201).json({
-        donation: donation.toObject(),
+        donation,
         sideshiftOrder: {
           id: sideshiftOrder.id,
           depositAddress: sideshiftOrder.depositAddress,
@@ -131,9 +128,9 @@ router.post(
 );
 
 // Get donation by ID
-router.get('/:id', [param('id').isMongoId()], async (req, res, next) => {
+router.get('/:id', [param('id').isString()], async (req, res, next) => {
   try {
-    const donation = await Donation.findById(req.params.id).populate('ngoId');
+    const donation = await Donations.getById(req.params.id);
     if (!donation) {
       return res.status(404).json({ error: 'Donation not found' });
     }
@@ -141,10 +138,13 @@ router.get('/:id', [param('id').isMongoId()], async (req, res, next) => {
     // Fetch latest status from SideShift
     try {
       const order = await getOrder(donation.sideshiftOrderId);
-      donation.status = mapSideshiftStatus(order.status);
-      donation.depositTxHash = order.depositTxHash;
-      donation.settleTxHash = order.settleTxHash;
-      await donation.save();
+      const updated = {
+        status: mapSideshiftStatus(order.status),
+        depositTxHash: order.depositTxHash,
+        settleTxHash: order.settleTxHash,
+      };
+      await Donations.update(donation.id || donation._id, updated);
+      Object.assign(donation, updated);
     } catch (error) {
       console.error('Error fetching order status:', error);
     }
@@ -158,10 +158,7 @@ router.get('/:id', [param('id').isMongoId()], async (req, res, next) => {
 // Get donations by donor address
 router.get('/donor/:address', [param('address').isEthereumAddress()], async (req, res, next) => {
   try {
-    const donations = await Donation.find({ donorAddress: req.params.address.toLowerCase() })
-      .populate('ngoId')
-      .sort({ createdAt: -1 })
-      .limit(50);
+    const donations = await Donations.listByDonor(req.params.address.toLowerCase());
 
     res.json(donations);
   } catch (error) {
@@ -170,11 +167,9 @@ router.get('/donor/:address', [param('address').isEthereumAddress()], async (req
 });
 
 // Get donations by NGO
-router.get('/ngo/:ngoId', [param('ngoId').isMongoId()], async (req, res, next) => {
+router.get('/ngo/:ngoId', [param('ngoId').isString()], async (req, res, next) => {
   try {
-    const donations = await Donation.find({ ngoId: req.params.ngoId })
-      .sort({ createdAt: -1 })
-      .limit(100);
+    const donations = await Donations.listByNGO(req.params.ngoId);
 
     res.json(donations);
   } catch (error) {
@@ -191,21 +186,9 @@ router.get('/', [
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
     const status = req.query.status;
 
-    const query = {};
-    if (status) {
-      query.status = status;
-    }
-
-    const donations = await Donation.find(query)
-      .populate('ngoId')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    const total = await Donation.countDocuments(query);
+    const { donations, total } = await Donations.list({ page, limit, status });
 
     res.json({
       donations,
@@ -213,7 +196,7 @@ router.get('/', [
         page,
         limit,
         total,
-        pages: Math.ceil(total / limit),
+        pages: Math.ceil((total || 0) / limit),
       },
     });
   } catch (error) {

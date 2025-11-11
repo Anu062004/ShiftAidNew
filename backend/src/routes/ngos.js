@@ -1,6 +1,6 @@
 import express from 'express';
 import { body, param, query, validationResult } from 'express-validator';
-import NGO from '../models/NGO.js';
+import { NGOs, usingSupabase } from '../db/adapter.js';
 
 const router = express.Router();
 
@@ -12,21 +12,11 @@ router.get('/', [
 ], async (req, res, next) => {
   try {
     const { category, verified, search } = req.query;
-    const query = {};
-
-    if (category) {
-      query.category = category;
-    }
-
-    if (verified !== undefined) {
-      query.verified = verified === 'true';
-    }
-
-    if (search) {
-      query.$text = { $search: search };
-    }
-
-    const ngos = await NGO.find(query).sort({ totalDonations: -1 });
+    const ngos = await NGOs.list({
+      category,
+      verified: verified !== undefined ? verified === 'true' : undefined,
+      search
+    });
     res.json(ngos);
   } catch (error) {
     next(error);
@@ -34,9 +24,9 @@ router.get('/', [
 });
 
 // Get NGO by ID
-router.get('/:id', [param('id').isMongoId()], async (req, res, next) => {
+router.get('/:id', [param('id').custom((v)=>true)], async (req, res, next) => {
   try {
-    const ngo = await NGO.findById(req.params.id);
+    const ngo = await NGOs.getById(req.params.id);
     if (!ngo) {
       return res.status(404).json({ error: 'NGO not found' });
     }
@@ -68,12 +58,12 @@ router.post(
       const { name, description, category, walletAddress, preferredCoin, website, logo } = req.body;
 
       // Check if NGO with this wallet already exists
-      const existing = await NGO.findOne({ walletAddress: walletAddress.toLowerCase() });
+      const existing = await NGOs.findByWallet(walletAddress);
       if (existing) {
         return res.status(400).json({ error: 'NGO with this wallet address already exists' });
       }
 
-      const ngo = new NGO({
+      const ngo = await NGOs.create({
         name,
         description,
         category,
@@ -81,10 +71,9 @@ router.post(
         preferredCoin: preferredCoin || 'USDC.polygon',
         website,
         logo,
-        verified: false, // Requires manual verification
+        verified: false,
       });
 
-      await ngo.save();
       res.status(201).json(ngo);
     } catch (error) {
       next(error);
@@ -93,15 +82,12 @@ router.post(
 );
 
 // Verify NGO (admin only - in production, add auth middleware)
-router.patch('/:id/verify', [param('id').isMongoId()], async (req, res, next) => {
+router.patch('/:id/verify', [param('id').custom((v)=>true)], async (req, res, next) => {
   try {
-    const ngo = await NGO.findById(req.params.id);
+    const ngo = await NGOs.verify(req.params.id);
     if (!ngo) {
       return res.status(404).json({ error: 'NGO not found' });
     }
-
-    ngo.verified = true;
-    await ngo.save();
 
     res.json(ngo);
   } catch (error) {

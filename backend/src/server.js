@@ -1,7 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import mongoose from 'mongoose';
+import { usingSupabase } from './db/adapter.js';
+import { healthCheckSupabase } from './db/supabase.js';
 import donationRoutes from './routes/donations.js';
 import ngoRoutes from './routes/ngos.js';
 import sideshiftRoutes from './routes/sideshift.js';
@@ -45,13 +46,32 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Root route
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'ShiftAid Backend API',
+    version: '1.0.0',
+    status: 'running',
+    endpoints: {
+      health: '/health',
+      api: '/api',
+      ngos: '/api/ngos',
+      donations: '/api/donations',
+      sideshift: '/api/sideshift',
+      dashboard: '/api/dashboard',
+      webhooks: '/api/webhooks',
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
     port: PORT,
-    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    database: usingSupabase() ? 'supabase' : 'unknown',
   });
 });
 
@@ -75,21 +95,21 @@ app.use((err, req, res, next) => {
  * Test MongoDB connection
  */
 async function testDatabaseConnection() {
-  try {
-    await mongoose.connect(env.MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000,
-    });
-    console.log('✅ Database connected');
-    return true;
-  } catch (error) {
-    console.error('❌ Database connection failed:', error.message);
-    if (error.name === 'MongooseServerSelectionError') {
-      console.error('💡 Make sure MongoDB is running:');
-      console.error('   Windows: Get-Service MongoDB');
-      console.error('   Or start manually: mongod');
+  if (usingSupabase()) {
+    try {
+      await healthCheckSupabase();
+      console.log('✅ Supabase connected');
+      return true;
+    } catch (error) {
+      console.error('❌ Supabase connection failed:', error.message);
+      // Log more details in development
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error details:', error);
+      }
+      return false;
     }
-    return false;
-  }
+  } 
+  return false;
 }
 
 /**
@@ -128,8 +148,8 @@ async function initializeServer() {
   console.log('\n📌 Testing database connection...');
   const dbConnected = await testDatabaseConnection();
   if (!dbConnected) {
-    console.error('❌ Cannot start server without database connection');
-    process.exit(1);
+    console.warn('⚠️  Database connection failed. Server will start but API endpoints may not work.');
+    console.warn('⚠️  Please set SUPABASE_SERVICE_ROLE in .env file with your Service Role key from Supabase Dashboard.');
   }
 
   // Step 4: Start server
@@ -182,7 +202,6 @@ initializeServer()
       console.log('\n🛑 SIGTERM received, shutting down gracefully...');
       server.close(() => {
         console.log('✅ Server closed');
-        mongoose.connection.close();
         process.exit(0);
       });
     });
@@ -191,7 +210,6 @@ initializeServer()
       console.log('\n🛑 SIGINT received, shutting down gracefully...');
       server.close(() => {
         console.log('✅ Server closed');
-        mongoose.connection.close();
         process.exit(0);
       });
     });

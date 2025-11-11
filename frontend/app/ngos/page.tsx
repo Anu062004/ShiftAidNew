@@ -73,7 +73,7 @@ export default function NGOsPage() {
         ) : (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {ngos.map((ngo: any) => (
-              <Card key={ngo._id} className="hover:shadow-lg transition-shadow">
+              <Card key={ngo.id || ngo._id} className="hover:shadow-lg transition-shadow">
                 <CardHeader>
                   <div className="flex items-start justify-between">
                     <CardTitle className="text-xl">{ngo.name}</CardTitle>
@@ -119,7 +119,7 @@ export default function NGOsPage() {
                       </a>
                     )}
                   </div>
-                  <Link href={`/donate?ngo=${ngo._id}`}>
+                  <Link href={`/donate?ngo=${ngo.id || ngo._id}`}>
                     <button className="mt-4 w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 transition-colors">
                       Donate Now
                     </button>

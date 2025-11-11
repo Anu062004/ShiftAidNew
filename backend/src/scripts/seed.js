@@ -1,6 +1,5 @@
-import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import NGO from '../models/NGO.js';
+import { getSupabase } from '../db/supabase.js';
 
 dotenv.config();
 
@@ -119,24 +118,32 @@ async function seed() {
   try {
     console.log('🌱 Starting seed...');
 
-    // Connect to MongoDB
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/shiftaid');
-    console.log('✅ Connected to MongoDB');
+    const sb = getSupabase();
+    console.log('✅ Connected to Supabase');
 
-    // Clear existing NGOs (optional - comment out if you want to keep existing)
-    // await NGO.deleteMany({});
-    // console.log('🗑️  Cleared existing NGOs');
+    // Optional: Clear existing NGOs (uncomment to wipe)
+    // await sb.from('ngos').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
     // Insert sample NGOs
     for (const ngoData of sampleNGOs) {
-      const existing = await NGO.findOne({ walletAddress: ngoData.walletAddress.toLowerCase() });
-      if (!existing) {
-        const ngo = new NGO(ngoData);
-        await ngo.save();
-        console.log(`✅ Created NGO: ${ngo.name}`);
-      } else {
+      const { data: existing } = await sb
+        .from('ngos')
+        .select('id,name')
+        .eq('walletAddress', ngoData.walletAddress.toLowerCase())
+        .maybeSingle();
+      if (existing) {
         console.log(`⏭️  Skipped existing NGO: ${existing.name}`);
+        continue;
       }
+      const { data, error } = await sb.from('ngos').insert({
+        ...ngoData,
+        walletAddress: ngoData.walletAddress.toLowerCase(),
+      }).select('name').single();
+      if (error) {
+        console.error('❌ Failed to create NGO:', ngoData.name, error.message);
+        continue;
+      }
+      console.log(`✅ Created NGO: ${data.name}`);
     }
 
     console.log('🎉 Seed completed successfully!');

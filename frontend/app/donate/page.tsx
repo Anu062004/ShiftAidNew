@@ -89,7 +89,7 @@ export default function DonatePage() {
     });
   };
 
-  const selectedNGOData = selectedNGO ? ngos.find((ngo: any) => String(ngo._id) === selectedNGO) : null;
+  const selectedNGOData = selectedNGO ? ngos.find((ngo: any) => String(ngo.id || ngo._id) === selectedNGO) : null;
 
   // Debug: Log data loading
   useEffect(() => {
@@ -136,7 +136,9 @@ export default function DonatePage() {
                   </div>
                 ) : ngosError ? (
                   <div className="h-10 px-3 border border-red-300 rounded-md bg-red-50 flex items-center">
-                    <span className="text-sm text-red-600">Error loading NGOs. Please refresh the page.</span>
+                    <span className="text-sm text-red-600">
+                      Error loading NGOs: {ngosError instanceof Error ? ngosError.message : 'Please check backend connection and refresh the page.'}
+                    </span>
                   </div>
                 ) : (
                   <Select 
@@ -154,11 +156,14 @@ export default function DonatePage() {
                       {ngos.length === 0 ? (
                         <div className="px-2 py-1.5 text-sm text-gray-500">No NGOs available. Please seed the database.</div>
                       ) : (
-                        ngos.filter((ngo: any) => ngo._id && ngo.name).map((ngo: any) => (
-                          <SelectItem key={String(ngo._id)} value={String(ngo._id)}>
-                            {ngo.name} - {ngo.category || 'NGO'}
-                          </SelectItem>
-                        ))
+                        ngos.filter((ngo: any) => (ngo.id || ngo._id) && ngo.name).map((ngo: any) => {
+                          const ngoId = ngo.id || ngo._id;
+                          return (
+                            <SelectItem key={String(ngoId)} value={String(ngoId)}>
+                              {ngo.name} - {ngo.category || 'NGO'}
+                            </SelectItem>
+                          );
+                        })
                       )}
                     </SelectContent>
                   </Select>
