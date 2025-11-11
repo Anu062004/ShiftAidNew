@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: shiftaid-backend
+    env: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install
+    startCommand: node src/server.js
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 18.19.0
+      - key: NODE_ENV
+        value: production
+      # Set these in Render dashboard with actual values
+      - key: MONGODB_URI
+        sync: false
+      - key: SIDESHIFT_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: PORT
+        value: 10000
+
