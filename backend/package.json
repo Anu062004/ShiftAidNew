@@ -1,0 +1,27 @@
+{
+  "name": "shiftaid-backend",
+  "version": "1.0.0",
+  "description": "ShiftAid Backend API",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon",
+    "start": "node src/server.js",
+    "build": "echo 'No build step required'",
+    "seed": "node src/scripts/seed.js",
+    "seed:api": "node src/scripts/seed-via-api.js"
+  },
+  "dependencies": {
+    "express": "^4.21.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "mongoose": "^8.7.0",
+    "axios": "^1.7.7",
+    "express-validator": "^7.2.0",
+    "ethers": "^6.13.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
+
