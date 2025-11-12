@@ -13,7 +13,19 @@ router.post(
     body('ngoId').isString().withMessage('Invalid NGO ID'),
     body('depositCoin').notEmpty().withMessage('Deposit coin is required'),
     body('settleCoin').notEmpty().withMessage('Settle coin is required'),
-    body('donorAddress').isEthereumAddress().withMessage('Invalid donor address'),
+    body('donorAddress')
+      .notEmpty()
+      .withMessage('Donor address is required')
+      .isString()
+      .withMessage('Donor address must be a string')
+      .custom((value) => {
+        const normalized = String(value).trim().toLowerCase();
+        if (!/^0x[a-f0-9]{40}$/.test(normalized)) {
+          throw new Error('Invalid Ethereum address format');
+        }
+        return true;
+      })
+      .withMessage('Wallet address must be a valid Ethereum address (0x followed by 40 hex characters)'),
     body('depositAmount').optional().isString(),
     body('settleAmount').optional().isString(),
   ],
@@ -26,6 +38,25 @@ router.post(
 
       const { ngoId, depositCoin, settleCoin, donorAddress, depositAmount, settleAmount } = req.body;
 
+      // Validate donor address format
+      if (!donorAddress || typeof donorAddress !== 'string') {
+        return res.status(400).json({ 
+          error: 'Donor address is required',
+          details: 'Wallet address must be provided and must be a string'
+        });
+      }
+
+      // Normalize address (lowercase, remove whitespace)
+      const normalizedDonorAddress = donorAddress.trim().toLowerCase();
+
+      if (!/^0x[a-f0-9]{40}$/.test(normalizedDonorAddress)) {
+        return res.status(400).json({ 
+          error: 'Invalid donor address format',
+          details: 'Wallet address must be a valid Ethereum address (0x followed by 40 hex characters)',
+          received: donorAddress.substring(0, 20) + '...' // Show first 20 chars for debugging
+        });
+      }
+
       // Verify NGO exists and is verified
       const ngo = await NGOs.getById(ngoId);
       if (!ngo) {
@@ -35,11 +66,14 @@ router.post(
         return res.status(400).json({ error: 'NGO is not verified' });
       }
 
-      // Validate NGO wallet address format
-      if (!ngo.walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(ngo.walletAddress)) {
-        return res.status(400).json({ 
+      // Validate NGO wallet address format (normalize whitespace/case)
+      const ngoWalletRaw = (ngo.walletAddress || '').trim();
+      const ngoWallet = ngoWalletRaw.toLowerCase();
+      if (!/^0x[a-f0-9]{40}$/.test(ngoWallet)) {
+        return res.status(400).json({
           error: 'Invalid NGO wallet address format',
-          details: 'Wallet address must be a valid Ethereum address (0x followed by 40 hex characters)'
+          details: 'Wallet address must be a valid Ethereum address (0x followed by 40 hex characters)',
+          received: ngoWalletRaw.substring(0, 20) + '...'
         });
       }
 
@@ -50,11 +84,19 @@ router.post(
         });
       }
 
+      // Validate that depositCoin and settleCoin are different
+      if (depositCoin === settleCoin) {
+        return res.status(400).json({ 
+          error: 'Cannot swap the same coin',
+          details: 'Deposit coin and settle coin must be different. Please select a different cryptocurrency to donate or a different coin for the NGO to receive.'
+        });
+      }
+
       // Create SideShift order
       const orderData = {
         depositCoin,
         settleCoin,
-        settleAddress: ngo.walletAddress,
+        settleAddress: ngoWallet,
         depositAmount,
         settleAmount,
       };
@@ -62,7 +104,7 @@ router.post(
       console.log('Creating SideShift order with:', {
         depositCoin,
         settleCoin,
-        settleAddress: ngo.walletAddress,
+        settleAddress: ngoWallet,
         depositAmount,
         settleAmount,
       });
@@ -83,16 +125,23 @@ router.post(
         const errorDetails = error.response?.data || {};
         const errorMessage = errorDetails.message || errorDetails.error || error.message || 'Unknown error';
         
+        // Extract more detailed error information
+        const sideShiftErrorMsg = errorDetails.message || errorDetails.error || errorDetails.code || '';
+        const fullErrorMessage = sideShiftErrorMsg || errorMessage;
+        
         return res.status(500).json({ 
           error: 'Failed to create swap order',
-          details: errorMessage,
+          details: fullErrorMessage,
           sideShiftError: errorDetails,
+          hint: depositCoin === settleCoin 
+            ? 'You cannot swap the same coin. Please select different coins for deposit and settlement.'
+            : 'Please check that both coins are supported and the swap is valid.',
         });
       }
 
       // Create donation record
       const donation = await Donations.create({
-        donorAddress,
+        donorAddress: normalizedDonorAddress,
         ngoId,
         sideshiftOrderId: sideshiftOrder.id,
         depositCoin,
@@ -100,7 +149,7 @@ router.post(
         depositAmount: sideshiftOrder.depositAmount || depositAmount,
         settleAmount: sideshiftOrder.settleAmount || settleAmount,
         depositAddress: sideshiftOrder.depositAddress,
-        settleAddress: ngo.walletAddress,
+        settleAddress: ngoWallet,
         status: 'pending',
         quote: sideshiftOrder.quote,
         metadata: {
@@ -135,6 +184,19 @@ router.get('/:id', [param('id').isString()], async (req, res, next) => {
       return res.status(404).json({ error: 'Donation not found' });
     }
 
+    // Fetch NGO data if ngoId exists
+    if (donation.ngoId) {
+      try {
+        const ngo = await NGOs.getById(donation.ngoId);
+        if (ngo) {
+          donation.ngoId = ngo; // Replace UUID with full NGO object
+        }
+      } catch (error) {
+        console.error('Error fetching NGO:', error);
+        // Keep ngoId as UUID if fetch fails
+      }
+    }
+
     // Fetch latest status from SideShift
     try {
       const order = await getOrder(donation.sideshiftOrderId);
@@ -143,7 +205,7 @@ router.get('/:id', [param('id').isString()], async (req, res, next) => {
         depositTxHash: order.depositTxHash,
         settleTxHash: order.settleTxHash,
       };
-      await Donations.update(donation.id || donation._id, updated);
+      await Donations.update(donation.id, updated);
       Object.assign(donation, updated);
     } catch (error) {
       console.error('Error fetching order status:', error);

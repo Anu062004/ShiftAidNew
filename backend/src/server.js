@@ -37,12 +37,22 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Middleware
-app.use(cors({
-  origin: env.FRONTEND_URL || ['http://localhost:3000', 'http://127.0.0.1:3000'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+// CORS configuration - allow all origins in development for easier debugging
+const corsOptions = process.env.NODE_ENV === 'development' 
+  ? {
+      origin: true, // Allow all origins in development
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    }
+  : {
+      origin: env.FRONTEND_URL || ['http://localhost:3000', 'http://127.0.0.1:3000'],
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    };
+
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

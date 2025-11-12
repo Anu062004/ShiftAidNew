@@ -57,15 +57,24 @@ export default function DonatePage() {
     mutationFn: createDonation,
     onSuccess: (data) => {
       // Redirect to donation status page
-      window.location.href = `/donation/${data.donation._id}`;
+      const donationId = data.donation?.id || data.donation?._id;
+      if (donationId) {
+        window.location.href = `/donation/${donationId}`;
+      } else {
+        console.error('Donation ID not found in response:', data);
+        alert('Donation created but could not redirect. Please check your dashboard.');
+      }
     },
     onError: (error: any) => {
       console.error('Donation creation error:', error);
-      const errorMessage = error.response?.data?.error 
-        || error.response?.data?.message 
+      const errorData = error.response?.data || {};
+      const errorMessage = errorData.details 
+        || errorData.error 
+        || errorData.message 
         || error.message 
         || 'Failed to create donation. Please try again.';
-      alert(`Error: ${errorMessage}`);
+      const hint = errorData.hint || '';
+      alert(`Error: ${errorMessage}${hint ? `\n\n${hint}` : ''}`);
     },
   });
 
@@ -75,16 +84,38 @@ export default function DonatePage() {
       return;
     }
 
+    // Validate wallet address format
+    if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
+      alert('Invalid wallet address. Please reconnect your wallet.');
+      return;
+    }
+
     if (!selectedNGO || !depositCoin || !depositAmount || parseFloat(depositAmount) <= 0) {
       alert('Please fill in all required fields with valid values');
       return;
     }
 
-    createDonationMutation.mutate({
+    // Validate that deposit and settle coins are different
+    if (depositCoin === settleCoin) {
+      alert('Error: Cannot swap the same coin.\n\nPlease select a different cryptocurrency to donate, or the NGO should receive a different coin.');
+      return;
+    }
+
+    console.log('Creating donation with:', {
       ngoId: selectedNGO,
       depositCoin,
       settleCoin,
       donorAddress: address,
+      depositAmount,
+      isConnected,
+      addressLength: address?.length,
+    });
+
+    createDonationMutation.mutate({
+      ngoId: selectedNGO,
+      depositCoin,
+      settleCoin,
+      donorAddress: address.toLowerCase(), // Ensure lowercase for consistency
       depositAmount,
     });
   };
@@ -118,6 +149,24 @@ export default function DonatePage() {
             </CardContent>
           </Card>
         )}
+        {isConnected && address && (
+          <Card className="mb-6 bg-green-50 border-green-200">
+            <CardContent className="pt-6">
+              <p className="text-center text-green-800">
+                ✅ Wallet Connected: {address.substring(0, 6)}...{address.substring(address.length - 4)}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+        {isConnected && !address && (
+          <Card className="mb-6 bg-red-50 border-red-200">
+            <CardContent className="pt-6">
+              <p className="text-center text-red-800">
+                ⚠️ Wallet connected but address not available. Please reconnect your wallet.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid md:grid-cols-2 gap-6">
           {/* Left Column - Form */}
@@ -135,9 +184,12 @@ export default function DonatePage() {
                     <span className="text-sm text-gray-500">Loading NGOs...</span>
                   </div>
                 ) : ngosError ? (
-                  <div className="h-10 px-3 border border-red-300 rounded-md bg-red-50 flex items-center">
-                    <span className="text-sm text-red-600">
-                      Error loading NGOs: {ngosError instanceof Error ? ngosError.message : 'Please check backend connection and refresh the page.'}
+                  <div className="h-auto px-3 py-2 border border-red-300 rounded-md bg-red-50">
+                    <span className="text-sm text-red-600 block mb-1">
+                      <strong>Error loading NGOs:</strong> {ngosError instanceof Error ? ngosError.message : 'Network error'}
+                    </span>
+                    <span className="text-xs text-red-500 block">
+                      Make sure the backend server is running on port 3001. Check the terminal for backend status.
                     </span>
                   </div>
                 ) : (
@@ -233,9 +285,14 @@ export default function DonatePage() {
                 </Select>
               </div>
 
+              {depositCoin === settleCoin && depositCoin && (
+                <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800">
+                  <strong>⚠️ Warning:</strong> You cannot swap the same coin. Please select a different cryptocurrency to donate.
+                </div>
+              )}
               <Button
                 onClick={handleDonate}
-                disabled={!isConnected || createDonationMutation.isPending || !depositAmount || !depositCoin || !selectedNGO}
+                disabled={!isConnected || createDonationMutation.isPending || !depositAmount || !depositCoin || !selectedNGO || depositCoin === settleCoin}
                 className="w-full"
                 size="lg"
               >
@@ -252,7 +309,13 @@ export default function DonatePage() {
               </Button>
               {createDonationMutation.isError && (
                 <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-800">
-                  <strong>Error:</strong> {createDonationMutation.error?.response?.data?.error || createDonationMutation.error?.message || 'Failed to create donation'}
+                  <strong>Error:</strong> {createDonationMutation.error?.response?.data?.details 
+                    || createDonationMutation.error?.response?.data?.error 
+                    || createDonationMutation.error?.message 
+                    || 'Failed to create donation'}
+                  {createDonationMutation.error?.response?.data?.hint && (
+                    <p className="mt-2 text-red-700">{createDonationMutation.error.response.data.hint}</p>
+                  )}
                 </div>
               )}
             </CardContent>

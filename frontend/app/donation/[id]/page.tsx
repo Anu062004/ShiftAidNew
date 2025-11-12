@@ -21,10 +21,11 @@ export default function DonationStatusPage() {
   const params = useParams();
   const donationId = params.id as string;
 
-  const { data: donation, isLoading } = useQuery({
+  const { data: donation, isLoading, error } = useQuery({
     queryKey: ['donation', donationId],
     queryFn: () => getDonation(donationId),
     refetchInterval: 10000, // Refetch every 10 seconds
+    retry: 2,
   });
 
   if (isLoading) {
@@ -35,12 +36,35 @@ export default function DonationStatusPage() {
     );
   }
 
+  if (error) {
+    const errorMessage = (error as any)?.response?.data?.error 
+      || (error as any)?.message 
+      || 'Failed to load donation';
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-center text-red-600 mb-2">Error loading donation</p>
+            <p className="text-center text-gray-500 text-sm">{errorMessage}</p>
+            <Link href="/dashboard" className="text-center text-blue-600 hover:underline mt-4 block">
+              ← Back to Dashboard
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (!donation) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card>
           <CardContent className="pt-6">
-            <p className="text-center text-gray-500">Donation not found</p>
+            <p className="text-center text-gray-500 mb-4">Donation not found</p>
+            <p className="text-center text-gray-400 text-sm mb-4">ID: {donationId}</p>
+            <Link href="/dashboard" className="text-center text-blue-600 hover:underline block">
+              ← Back to Dashboard
+            </Link>
           </CardContent>
         </Card>
       </div>
@@ -177,9 +201,15 @@ export default function DonationStatusPage() {
               <div>
                 <h3 className="font-semibold mb-3">NGO Information</h3>
                 <div className="bg-gray-50 p-4 rounded">
-                  <p className="font-semibold">{donation.ngoId.name}</p>
-                  <p className="text-sm text-gray-600">{donation.ngoId.description}</p>
-                  <p className="text-xs text-gray-500 mt-2">Category: {donation.ngoId.category}</p>
+                  {typeof donation.ngoId === 'object' && donation.ngoId.name ? (
+                    <>
+                      <p className="font-semibold">{donation.ngoId.name}</p>
+                      <p className="text-sm text-gray-600">{donation.ngoId.description}</p>
+                      <p className="text-xs text-gray-500 mt-2">Category: {donation.ngoId.category}</p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-600">NGO ID: {donation.ngoId}</p>
+                  )}
                 </div>
               </div>
             )}

@@ -11,8 +11,15 @@ const api = axios.create({
 
 // NGOs
 export const getNGOs = async (params?: { category?: string; verified?: boolean; search?: string }) => {
-  const response = await api.get('/api/ngos', { params });
-  return response.data;
+  try {
+    const response = await api.get('/api/ngos', { params });
+    return response.data;
+  } catch (error: any) {
+    if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error') || !error.response) {
+      throw new Error(`Cannot connect to backend server. Please ensure the backend is running on ${API_URL}`);
+    }
+    throw error;
+  }
 };
 
 export const getNGO = async (id: string) => {
@@ -48,8 +55,15 @@ export const createDonation = async (donationData: {
 };
 
 export const getDonation = async (id: string) => {
-  const response = await api.get(`/api/donations/${id}`);
-  return response.data;
+  try {
+    const response = await api.get(`/api/donations/${id}`);
+    return response.data;
+  } catch (error: any) {
+    if (error.response?.status === 404) {
+      throw new Error('Donation not found');
+    }
+    throw error;
+  }
 };
 
 export const getDonations = async (params?: { page?: number; limit?: number; status?: string }) => {
