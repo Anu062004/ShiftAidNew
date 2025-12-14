@@ -17,9 +17,17 @@ router.get('/', [
       verified: verified !== undefined ? verified === 'true' : undefined,
       search
     });
+    
+    // Always return an array, even if empty
+    if (!ngos || !Array.isArray(ngos)) {
+      return res.json([]);
+    }
+    
     res.json(ngos);
   } catch (error) {
-    next(error);
+    console.error('Error fetching NGOs:', error);
+    // Return empty array instead of error to prevent frontend crashes
+    res.json([]);
   }
 });
 

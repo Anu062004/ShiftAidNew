@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getValidIPForAPI } from '../utils/get-public-ip.js';
 
 const SIDESHIFT_API_URL = process.env.SIDESHIFT_API_URL || 'https://sideshift.ai/api/v2';
 const SIDESHIFT_SECRET = process.env.SIDESHIFT_SECRET || process.env.SIDESHIFT_API_KEY;
@@ -23,9 +24,52 @@ const sideshiftApi = axios.create({
   headers: {
     'Content-Type': 'application/json',
     'x-sideshift-secret': SIDESHIFT_SECRET || '',
+    'x-api-key': SIDESHIFT_SECRET || '',
   },
   timeout: 30000,
 });
+
+/**
+ * Extract error message from SideShift API error response
+ * Handles objects, strings, and nested properties properly
+ */
+function extractErrorMessage(error) {
+  if (!error) return 'Unknown error';
+  
+  // If error.response?.data exists, extract from there
+  if (error.response?.data) {
+    const data = error.response.data;
+    
+    // If data is a string, use it directly
+    if (typeof data === 'string') {
+      return data;
+    }
+    // If data has a message property
+    if (data.message && typeof data.message === 'string') {
+      return data.message;
+    }
+    // If data has an error property
+    if (data.error && typeof data.error === 'string') {
+      return data.error;
+    }
+    // If data has a code property
+    if (data.code && typeof data.code === 'string') {
+      return data.code;
+    }
+    // Otherwise, try to stringify the object (but limit length)
+    if (typeof data === 'object') {
+      try {
+        const jsonStr = JSON.stringify(data);
+        return jsonStr.length > 200 ? jsonStr.substring(0, 200) + '...' : jsonStr;
+      } catch (e) {
+        return 'Invalid response from SideShift API';
+      }
+    }
+  }
+  
+  // Fallback to error.message
+  return error.message || 'Unknown error';
+}
 
 /**
  * Parse coin format (e.g., "USDC.polygon" -> { coin: "usdc", network: "polygon" })
@@ -95,9 +139,15 @@ export const getCoins = async () => {
  * @param {string} settleCoin - Coin to receive (e.g., 'USDC.polygon' or 'USDC')
  * @param {string} depositAmount - Amount to deposit (optional)
  * @param {string} settleAmount - Amount to receive (optional)
+ * @param {string} userIP - User's IP address for x-user-ip header (required)
  */
-export const getQuote = async (depositCoin, settleCoin, depositAmount = null, settleAmount = null) => {
+export const getQuote = async (depositCoin, settleCoin, depositAmount = null, settleAmount = null, userIP = null) => {
   try {
+    // Validate API key is configured
+    if (!SIDESHIFT_SECRET || SIDESHIFT_SECRET === 'your_sideshift_api_key_here' || SIDESHIFT_SECRET.includes('your_') || SIDESHIFT_SECRET.includes('REPLACE')) {
+      throw new Error('SideShift API key is not configured. Please set SIDESHIFT_API_KEY or SIDESHIFT_SECRET in your .env file with your actual API key from https://sideshift.ai/');
+    }
+    
     const deposit = parseCoin(depositCoin);
     const settle = parseCoin(settleCoin);
 
@@ -132,10 +182,29 @@ export const getQuote = async (depositCoin, settleCoin, depositAmount = null, se
       console.log('Full URL will be:', `${SIDESHIFT_API_URL}/quotes`);
     }
 
-    const response = await sideshiftApi.post('/quotes', payload);
+    // Add x-user-ip header to the request (required by SideShift when proxying requests)
+    // See: https://docs.sideshift.ai/api-intro/permissions/#the-x-user-ip-header
+    // SideShift rejects '0.0.0.0' and localhost IPs, so we need a valid public IP
+    // In development, we'll fetch the server's public IP as a fallback
+    const validUserIP = await getValidIPForAPI(userIP);
+    
+    if (!validUserIP) {
+      const errorMsg = process.env.NODE_ENV === 'development'
+        ? 'Cannot fetch quote: Unable to determine a valid IP address for SideShift API. Please check your internet connection.'
+        : 'User IP address is required for SideShift API requests. The request must include a valid public IP address.';
+      throw new Error(errorMsg);
+    }
+    
+    const requestConfig = {
+      headers: {
+        'x-user-ip': validUserIP,
+        'x-api-key': SIDESHIFT_SECRET || '',
+      },
+    };
+
+    const response = await sideshiftApi.post('/quotes', payload, requestConfig);
     return response.data;
   } catch (error) {
-    const errorDetails = error.response?.data || error.message;
     console.error('SideShift API Error Details:', {
       status: error.response?.status,
       statusText: error.response?.statusText,
@@ -145,13 +214,36 @@ export const getQuote = async (depositCoin, settleCoin, depositAmount = null, se
       method: error.config?.method,
     });
     
-    // Provide more detailed error message
-    const errorMessage = error.response?.data?.message 
-      || error.response?.data?.error 
-      || error.response?.data 
-      || error.message;
+    // Extract error message properly
+    let errorMessage = 'Unknown error';
     
-    throw new Error(`Failed to fetch quote: ${errorMessage}`);
+    if (error.response?.data) {
+      const data = error.response.data;
+      if (typeof data === 'string') {
+        errorMessage = data;
+      } else if (data.message) {
+        errorMessage = data.message;
+      } else if (data.error) {
+        errorMessage = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+      } else if (data.code) {
+        errorMessage = `Error ${data.code}: ${data.message || 'Unknown error'}`;
+      } else {
+        // Try to stringify the object, but limit length
+        try {
+          const errorStr = JSON.stringify(data);
+          errorMessage = errorStr.length > 200 ? errorStr.substring(0, 200) + '...' : errorStr;
+        } catch (e) {
+          errorMessage = 'Failed to parse error response';
+        }
+      }
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    // Create a proper error object that can be serialized
+    const quoteError = new Error(`Failed to fetch quote: ${errorMessage}`);
+    quoteError.response = error.response;
+    throw quoteError;
   }
 };
 
@@ -165,8 +257,9 @@ export const getQuote = async (depositCoin, settleCoin, depositAmount = null, se
  * @param {string} orderData.depositAmount - Amount to deposit (optional)
  * @param {string} orderData.settleAmount - Amount to receive (optional)
  * @param {string} orderData.quoteId - Quote ID from getQuote (optional, will create if not provided)
+ * @param {string} userIP - User's IP address for x-user-ip header (required)
  */
-export const createOrder = async (orderData) => {
+export const createOrder = async (orderData, userIP = null) => {
   try {
     let quoteId = orderData.quoteId;
 
@@ -198,7 +291,25 @@ export const createOrder = async (orderData) => {
 
       let quoteResponse;
       try {
-        quoteResponse = await sideshiftApi.post('/quotes', quotePayload);
+        // Add x-user-ip header to quote request (required by SideShift when proxying requests)
+        // See: https://docs.sideshift.ai/api-intro/permissions/#the-x-user-ip-header
+        // In development, we'll fetch the server's public IP as a fallback for localhost
+        const validUserIP = await getValidIPForAPI(userIP);
+        
+        if (!validUserIP) {
+          const errorMsg = process.env.NODE_ENV === 'development'
+            ? 'Cannot create quote: Unable to determine a valid IP address for SideShift API. Please check your internet connection.'
+            : 'User IP address is required for SideShift API requests. Please ensure the request includes a valid IP address.';
+          throw new Error(errorMsg);
+        }
+        
+        const quoteConfig = {
+          headers: {
+            'x-user-ip': validUserIP,
+            'x-api-key': SIDESHIFT_SECRET || '',
+          },
+        };
+        quoteResponse = await sideshiftApi.post('/quotes', quotePayload, quoteConfig);
         quoteId = quoteResponse.data.id;
         if (process.env.NODE_ENV === 'development') {
           console.log('Quote created successfully:', quoteId);
@@ -209,7 +320,8 @@ export const createOrder = async (orderData) => {
           data: quoteError.response?.data,
           message: quoteError.message,
         });
-        throw new Error(`Failed to create quote: ${quoteError.response?.data?.message || quoteError.response?.data?.error || quoteError.message}`);
+        const errorMessage = extractErrorMessage(quoteError);
+        throw new Error(`Failed to create quote: ${errorMessage}`);
       }
     }
 
@@ -229,7 +341,25 @@ export const createOrder = async (orderData) => {
 
     let response;
     try {
-      response = await sideshiftApi.post('/shifts/fixed', shiftPayload);
+      // Add x-user-ip header to fixed shift request (required by SideShift when proxying requests)
+      // See: https://docs.sideshift.ai/api-intro/permissions/#the-x-user-ip-header
+      // In development, we'll fetch the server's public IP as a fallback for localhost
+      const validUserIP = await getValidIPForAPI(userIP);
+      
+      if (!validUserIP) {
+        const errorMsg = process.env.NODE_ENV === 'development'
+          ? 'Cannot create shift: Unable to determine a valid IP address for SideShift API. Please check your internet connection.'
+          : 'User IP address is required for SideShift API requests. Please ensure the request includes a valid IP address.';
+        throw new Error(errorMsg);
+      }
+      
+      const shiftConfig = {
+        headers: {
+          'x-user-ip': validUserIP,
+          'x-api-key': SIDESHIFT_SECRET || '',
+        },
+      };
+      response = await sideshiftApi.post('/shifts/fixed', shiftPayload, shiftConfig);
       const shift = response.data;
       
       if (process.env.NODE_ENV === 'development') {
@@ -257,7 +387,8 @@ export const createOrder = async (orderData) => {
         data: shiftError.response?.data,
         message: shiftError.message,
       });
-      throw new Error(`Failed to create fixed shift: ${shiftError.response?.data?.message || shiftError.response?.data?.error || shiftError.message}`);
+      const errorMessage = extractErrorMessage(shiftError);
+      throw new Error(`Failed to create fixed shift: ${errorMessage}`);
     }
   } catch (error) {
     console.error('Error creating order:', {
@@ -272,10 +403,22 @@ export const createOrder = async (orderData) => {
 /**
  * Get shift status
  * @param {string} shiftId - Shift ID (previously called orderId)
+ * @param {string} userIP - User's IP address for x-user-ip header (optional)
  */
-export const getOrder = async (shiftId) => {
+export const getOrder = async (shiftId, userIP = null) => {
   try {
-    const response = await sideshiftApi.get(`/shifts/${shiftId}`);
+    // Add x-user-ip header to get order request (required by SideShift when proxying requests)
+    // See: https://docs.sideshift.ai/api-intro/permissions/#the-x-user-ip-header
+    // In development, we'll fetch the server's public IP as a fallback for localhost
+    const validUserIP = await getValidIPForAPI(userIP) || '8.8.8.8'; // Fallback for read operations
+    
+    const requestConfig = {
+      headers: {
+        'x-user-ip': validUserIP,
+        'x-api-key': SIDESHIFT_SECRET || '',
+      },
+    };
+    const response = await sideshiftApi.get(`/shifts/${shiftId}`, requestConfig);
     const shift = response.data;
 
     // Map SideShift status to our internal status
@@ -301,7 +444,8 @@ export const getOrder = async (shiftId) => {
     };
   } catch (error) {
     console.error('Error fetching shift:', error.response?.data || error.message);
-    throw new Error(`Failed to fetch shift: ${error.response?.data?.message || error.message}`);
+    const errorMessage = extractErrorMessage(error);
+    throw new Error(`Failed to fetch shift: ${errorMessage}`);
   }
 };
 

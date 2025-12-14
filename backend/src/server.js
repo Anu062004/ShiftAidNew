@@ -10,6 +10,7 @@ import webhookRoutes from './routes/webhooks.js';
 import dashboardRoutes from './routes/dashboard.js';
 import { killProcessOnPort, findAvailablePort, isPortAvailable } from './utils/port-finder.js';
 import { validateEnv, updateEnvPort } from './utils/env-validator.js';
+import { getPublicIP } from './utils/get-public-ip.js';
 
 // Load and validate environment variables
 let env;
@@ -52,9 +53,52 @@ const corsOptions = process.env.NODE_ENV === 'development'
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
     };
 
+// Trust proxy to get correct client IP (important for x-user-ip header)
+app.set('trust proxy', true);
+
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Middleware to extract and attach user IP to request
+app.use((req, res, next) => {
+  // Extract IP from various headers (proxy-aware)
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const xUserIp = req.headers['x-user-ip'];
+  const xRealIp = req.headers['x-real-ip'];
+  const xClientIp = req.headers['x-client-ip'];
+  
+  let extractedIP = null;
+  
+  if (forwardedFor) {
+    // x-forwarded-for can contain multiple IPs, take the first one (client IP)
+    const ips = forwardedFor.split(',').map(ip => ip.trim());
+    extractedIP = ips[0];
+  } else if (xUserIp) {
+    extractedIP = xUserIp.trim();
+  } else if (xRealIp) {
+    extractedIP = xRealIp.trim();
+  } else if (xClientIp) {
+    extractedIP = xClientIp.trim();
+  } else if (req.ip) {
+    extractedIP = req.ip;
+  } else if (req.connection && req.connection.remoteAddress) {
+    extractedIP = req.connection.remoteAddress;
+  } else if (req.socket?.remoteAddress) {
+    extractedIP = req.socket.remoteAddress;
+  }
+  
+  // Clean up IPv6-mapped IPv4 addresses (::ffff:127.0.0.1 -> 127.0.0.1)
+  if (extractedIP && extractedIP.startsWith('::ffff:')) {
+    extractedIP = extractedIP.replace('::ffff:', '');
+  }
+  
+  // Set the IP, but don't use invalid localhost IPs for SideShift
+  // In development, if we get localhost, we'll handle it in the SideShift config
+  req.userIp = extractedIP || '0.0.0.0';
+  
+  next();
+});
 
 // Root route
 app.get('/', (req, res) => {
@@ -160,6 +204,22 @@ async function initializeServer() {
   if (!dbConnected) {
     console.warn('⚠️  Database connection failed. Server will start but API endpoints may not work.');
     console.warn('⚠️  Please set SUPABASE_SERVICE_ROLE in .env file with your Service Role key from Supabase Dashboard.');
+  }
+
+  // Step 3.5: Pre-fetch public IP for development (non-blocking)
+  if (process.env.NODE_ENV === 'development') {
+    console.log('\n📌 Pre-fetching public IP for SideShift API...');
+    getPublicIP()
+      .then((ip) => {
+        if (ip) {
+          console.log(`✅ Public IP cached: ${ip}`);
+        } else {
+          console.warn('⚠️  Could not fetch public IP. Quote requests may fail if using localhost.');
+        }
+      })
+      .catch((error) => {
+        console.warn('⚠️  Error pre-fetching public IP:', error.message);
+      });
   }
 
   // Step 4: Start server

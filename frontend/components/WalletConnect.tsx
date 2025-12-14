@@ -68,9 +68,10 @@ export function WalletConnect() {
             onClick={() => {
               try {
                 connect({ connector });
-              } catch (error: any) {
+              } catch (error: unknown) {
                 console.error('Connection error:', error);
-                alert(error?.message || 'Failed to connect wallet. Please make sure MetaMask is installed and unlocked.');
+                const errorMessage = (error as { message?: string })?.message || 'Failed to connect wallet. Please make sure MetaMask is installed and unlocked.';
+                alert(errorMessage);
               }
             }}
             disabled={isPending}

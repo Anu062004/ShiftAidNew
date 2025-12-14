@@ -34,7 +34,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     
     // Add MetaMask connector if available
     try {
-      if (typeof window !== 'undefined' && (window as any).ethereum) {
+      if (typeof window !== 'undefined' && (window as Window & { ethereum?: unknown }).ethereum) {
         connectorsList.push(metaMask());
       }
     } catch (e) {

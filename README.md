@@ -113,29 +113,118 @@ cd ../backend && npm install
 
 **Backend (.env):**
 ```env
-PORT=3001
-MONGODB_URI=your_mongodb_connection_string
+# Server Configuration
+PORT=3005
+NODE_ENV=production
+
+# Database Configuration
+USE_SUPABASE=true
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_DB_URL=your_supabase_database_connection_string
+
+# Frontend URL (for CORS)
+FRONTEND_URL=https://your-frontend-url.vercel.app
+
+# SideShift API Configuration
 SIDESHIFT_API_KEY=your_sideshift_api_key
 SIDESHIFT_AFFILIATE_ID=your_affiliate_id
 WEBHOOK_SECRET=your_webhook_secret
-POLYGON_RPC_URL=your_polygon_rpc_url
-PRIVATE_KEY=your_contract_deployer_private_key
+
+# Blockchain Configuration
+# For Polygon Mainnet (Production)
+POLYGON_RPC_URL=https://polygon-rpc.com
+POLYGON_MAINNET_RPC_URL=https://polygon-rpc.com
+
+# For Polygon Amoy Testnet (Staging/Development)
+# POLYGON_RPC_URL=https://rpc-amoy.polygon.technology
+
+# Contract deployer private key (NEVER commit real keys!)
+PRIVATE_KEY=your_private_key_here
 ```
 
 **Frontend (.env.local):**
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:3001
-NEXT_PUBLIC_CONTRACT_ADDRESS=your_contract_address
-NEXT_PUBLIC_POLYGON_RPC_URL=your_polygon_rpc_url
+# Backend API URL
+# For production:
+NEXT_PUBLIC_API_URL=https://your-backend-url.onrender.com
+
+# For local development:
+# NEXT_PUBLIC_API_URL=http://localhost:3005
+
+# Smart Contract Address (update after mainnet deployment)
+NEXT_PUBLIC_CONTRACT_ADDRESS=your_deployed_contract_address
+
+# Polygon RPC URL
+# For production (Polygon Mainnet):
+NEXT_PUBLIC_POLYGON_RPC_URL=https://polygon-rpc.com
+
+# For development (Polygon Amoy Testnet):
+# NEXT_PUBLIC_POLYGON_RPC_URL=https://rpc-amoy.polygon.technology
 ```
 
+**Contracts (.env):**
+```env
+# Polygon Amoy Testnet (for staging/development)
+POLYGON_RPC_URL=https://rpc-amoy.polygon.technology
+
+# Polygon Mainnet (for production)
+POLYGON_MAINNET_RPC_URL=https://polygon-rpc.com
+
+# Deployer private key (NEVER commit real keys!)
+PRIVATE_KEY=your_private_key_here
+
+# Optional: Polygonscan API key for contract verification
+POLYGONSCAN_API_KEY=your_polygonscan_api_key
+```
+
+### Environment Variables Reference
+
+#### Backend Variables
+- `PORT`: Server port (default: 3005)
+- `NODE_ENV`: Environment mode (development/production)
+- `USE_SUPABASE`: Use Supabase as database (true/false)
+- `SUPABASE_URL`: Supabase project URL
+- `SUPABASE_DB_URL`: Supabase database connection string
+- `FRONTEND_URL`: Frontend URL for CORS configuration
+- `SIDESHIFT_API_KEY`: Your SideShift API key (required for swaps)
+- `SIDESHIFT_AFFILIATE_ID`: Your SideShift affiliate ID (optional)
+- `WEBHOOK_SECRET`: Secret for webhook verification
+- `POLYGON_RPC_URL`: Polygon RPC endpoint (mainnet or testnet)
+- `POLYGON_MAINNET_RPC_URL`: Polygon mainnet RPC endpoint
+- `PRIVATE_KEY`: Private key for blockchain interactions
+
+#### Frontend Variables
+- `NEXT_PUBLIC_API_URL`: Backend API base URL
+- `NEXT_PUBLIC_CONTRACT_ADDRESS`: Deployed DonationRouter contract address
+- `NEXT_PUBLIC_POLYGON_RPC_URL`: Polygon RPC endpoint for frontend
+
+#### Contracts Variables
+- `POLYGON_RPC_URL`: Polygon Amoy testnet RPC URL
+- `POLYGON_MAINNET_RPC_URL`: Polygon mainnet RPC URL
+- `PRIVATE_KEY`: Deployer wallet private key
+- `POLYGONSCAN_API_KEY`: API key for contract verification on Polygonscan
+
 4. Deploy the smart contract:
+
+**For Polygon Amoy Testnet (Staging):**
 ```bash
 cd contracts
 npm install
 npx hardhat compile
-npx hardhat deploy --network polygon-amoy
+npm run deploy:amoy
 ```
+
+**For Polygon Mainnet (Production):**
+```bash
+cd contracts
+npm install
+npx hardhat compile
+npm run deploy:mainnet
+```
+
+After deployment, copy the contract address and update:
+- Backend `.env`: `CONTRACT_ADDRESS=<deployed_address>`
+- Frontend `.env.local`: `NEXT_PUBLIC_CONTRACT_ADDRESS=<deployed_address>`
 
 5. Run the development servers:
 ```bash
@@ -156,6 +245,87 @@ The frontend will be available at `http://localhost:3000` and the backend at `ht
 
 A user donates 0.02 Bitcoin to a listed NGO that prefers USDC on Polygon. ShiftAid checks via the SideShift API that BTC → USDC.polygon is available, fetches a quote, and creates a swap order. The user sends BTC to the SideShift deposit address. SideShift swaps it in real time and sends the converted USDC directly to the NGO's Polygon wallet. Within seconds, the dashboard updates showing: "0.02 BTC → 1,100 USDC delivered." The donor and NGO can both see transaction proofs.
 
+## 🚀 Deployment Guide
+
+### Backend Deployment (Render)
+
+1. Create a new Web Service on Render
+2. Connect your GitHub repository
+3. Set build command: `cd backend && npm install`
+4. Set start command: `cd backend && npm start`
+5. Add all environment variables from Backend .env section above
+6. Deploy and copy the service URL
+
+### Frontend Deployment (Vercel)
+
+1. Import your GitHub repository to Vercel
+2. Set root directory to `frontend`
+3. Framework preset: Next.js
+4. Add all environment variables from Frontend .env.local section above
+5. Set `NEXT_PUBLIC_API_URL` to your Render backend URL
+6. Deploy
+
+### Contract Deployment
+
+1. Ensure you have MATIC in your deployer wallet
+2. For testnet: Get MATIC from https://faucet.polygon.technology/
+3. For mainnet: Ensure sufficient MATIC for gas fees
+4. Run deployment command (see step 4 above)
+5. Update contract address in backend and frontend .env files
+6. Redeploy backend and frontend with new contract address
+
+## 📋 Wave 3 Preparation Checklist
+
+### Mainnet Readiness
+- ✅ Polygon mainnet support added to Hardhat config
+- ✅ Environment variables configured for mainnet
+- ✅ Deploy script ready for mainnet deployment
+- ⚠️ Update `.env` files with real mainnet values before deployment
+- ⚠️ Deploy DonationRouter contract to Polygon mainnet
+- ⚠️ Update frontend with mainnet contract address
+
+### SideShift API Integration
+- ✅ x-user-ip header added to all SideShift API calls
+- ✅ x-api-key header added to all SideShift API calls
+- ✅ IP extraction middleware implemented
+- ✅ All endpoints pass user IP to SideShift
+- ⚠️ Verify SideShift API key is valid and active
+- ⚠️ Test all swap flows on production
+
+### Frontend Polish
+- ✅ Reusable WalletConnectButton component created
+- ✅ Dropdown selectors have proper backgrounds and borders
+- ✅ NGO loading error handling improved
+- ✅ Header with wallet button added to all pages
+- ✅ Better error messages for API failures
+- ⚠️ Test all user flows end-to-end
+- ⚠️ Verify responsive design on mobile devices
+
+### Type Safety
+- ✅ TypeScript types added for NGO, Donation, SideShift entities
+- ✅ JSDoc types added to backend
+- ⚠️ Consider adding more strict type checking
+
+### Documentation
+- ✅ Environment variables fully documented
+- ✅ Deployment guide added
+- ✅ Mainnet configuration explained
+- ⚠️ Add troubleshooting section if needed
+
+### Production Checklist
+- [ ] Replace test private keys with secure production keys
+- [ ] Verify all environment variables are set correctly
+- [ ] Deploy contract to Polygon mainnet
+- [ ] Update contract address in all configs
+- [ ] Test donation flow with real crypto (small amounts first)
+- [ ] Verify NGO wallet addresses are correct
+- [ ] Test SideShift swaps with various coin pairs
+- [ ] Monitor backend logs for errors
+- [ ] Set up error monitoring (Sentry, etc.)
+- [ ] Verify frontend connects to correct backend URL
+- [ ] Test wallet connection on multiple browsers
+- [ ] Verify transaction tracking works correctly
+
 ## 🏁 Future Roadmap
 
 - Recurring donations using smart contract subscriptions
@@ -163,6 +333,9 @@ A user donates 0.02 Bitcoin to a listed NGO that prefers USDC on Polygon. ShiftA
 - NFT Impact Badges minted for each donor as proof of contribution
 - Campaign splits allowing donations to be auto-divided among multiple NGOs
 - Public Impact Analytics API so anyone can display live donation stats
+- Multi-language support for global accessibility
+- Mobile app for iOS and Android
+- Integration with more DEX aggregators for better rates
 
 ## 📝 License
 

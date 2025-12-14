@@ -3,6 +3,7 @@ import { body, param, query, validationResult } from 'express-validator';
 import { Donations, NGOs } from '../db/adapter.js';
 import { createOrder, getOrder } from '../config/sideshift.js';
 import { logDonationOnChain } from '../utils/blockchain.js';
+import { getUserIP } from '../utils/get-user-ip.js';
 
 const router = express.Router();
 
@@ -109,9 +110,12 @@ router.post(
         settleAmount,
       });
 
+      // Use user IP from middleware (req.userIp)
+      const userIP = req.userIp || '0.0.0.0';
+
       let sideshiftOrder;
       try {
-        sideshiftOrder = await createOrder(orderData);
+        sideshiftOrder = await createOrder(orderData, userIP);
         console.log('SideShift order created:', sideshiftOrder.id);
       } catch (error) {
         console.error('SideShift order creation failed:', {
@@ -198,8 +202,10 @@ router.get('/:id', [param('id').isString()], async (req, res, next) => {
     }
 
     // Fetch latest status from SideShift
+    // Use user IP from middleware (req.userIp)
+    const userIP = req.userIp || '0.0.0.0';
     try {
-      const order = await getOrder(donation.sideshiftOrderId);
+      const order = await getOrder(donation.sideshiftOrderId, userIP);
       const updated = {
         status: mapSideshiftStatus(order.status),
         depositTxHash: order.depositTxHash,

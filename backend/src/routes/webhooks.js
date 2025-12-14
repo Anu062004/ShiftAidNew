@@ -45,7 +45,13 @@ router.post('/sideshift', express.raw({ type: 'application/json' }), async (req,
       }
 
       // Fetch latest order status from SideShift
-      const order = await getOrder(orderId);
+      // For webhooks, we don't have an end-user IP, but we can try to extract it from the request
+      // This is optional since webhooks come from SideShift's servers
+      const userIP = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 
+                     req.headers['x-real-ip'] || 
+                     req.ip || 
+                     null;
+      const order = await getOrder(orderId, userIP);
 
       // Update donation status
       const updatedDonation = await Donations.update(donation.id, {
