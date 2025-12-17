@@ -36,6 +36,10 @@ router.get(
       // Use user IP from middleware (req.userIp)
       const userIP = req.userIp || '0.0.0.0';
       
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Quote request:', { depositCoin, settleCoin, depositAmount, settleAmount, userIP });
+      }
+      
       const quote = await getQuote(depositCoin, settleCoin, depositAmount, settleAmount, userIP);
       res.json(quote);
     } catch (error) {

@@ -189,10 +189,16 @@ export const getQuote = async (depositCoin, settleCoin, depositAmount = null, se
     const validUserIP = await getValidIPForAPI(userIP);
     
     if (!validUserIP) {
+      // This should rarely happen now as getValidIPForAPI has fallback logic
       const errorMsg = process.env.NODE_ENV === 'development'
         ? 'Cannot fetch quote: Unable to determine a valid IP address for SideShift API. Please check your internet connection.'
         : 'User IP address is required for SideShift API requests. The request must include a valid public IP address.';
+      console.error('⚠️  Failed to get valid IP for SideShift API. UserIP:', userIP);
       throw new Error(errorMsg);
+    }
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log('✅ Using IP for SideShift API:', validUserIP);
     }
     
     const requestConfig = {
