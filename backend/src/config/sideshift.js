@@ -203,7 +203,22 @@ export const getQuote = async (depositCoin, settleCoin, depositAmount = null, se
     };
 
     const response = await sideshiftApi.post('/quotes', payload, requestConfig);
-    return response.data;
+    const quoteData = response.data;
+    
+    // Transform response to ensure compatibility with frontend
+    // SideShift API returns the quote - map to our expected format while preserving original coin format
+    // Use original coin strings for display, but SideShift response should have the correct values
+    return {
+      id: quoteData.id,
+      depositCoin: depositCoin, // Use original format (e.g., "BTC" or "USDC.polygon")
+      settleCoin: settleCoin,   // Use original format
+      depositAmount: quoteData.depositAmount || quoteData.depositValue || depositAmount,
+      settleAmount: quoteData.settleAmount || quoteData.settleValue || settleAmount,
+      rate: quoteData.rate || quoteData.exchangeRate,
+      fees: quoteData.fees || quoteData.fee,
+      expiresAt: quoteData.expiresAt || quoteData.expires,
+      ...quoteData, // Include any additional fields from SideShift
+    };
   } catch (error) {
     console.error('SideShift API Error Details:', {
       status: error.response?.status,

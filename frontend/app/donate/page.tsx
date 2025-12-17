@@ -56,14 +56,24 @@ export default function DonatePage() {
     if (depositCoin && settleCoin && depositAmount) {
       setQuoteError(null);
       setQuoteLoading(true);
+      
+      // Use AbortController to cancel previous requests
+      const abortController = new AbortController();
+      let isCancelled = false;
+      
       const timer = setTimeout(() => {
         getQuote(depositCoin, settleCoin, depositAmount)
           .then((data) => {
-            setQuote(data);
-            setQuoteError(null);
-            setQuoteLoading(false);
+            // Only update state if this request wasn't cancelled
+            if (!isCancelled) {
+              setQuote(data);
+              setQuoteError(null);
+              setQuoteLoading(false);
+            }
           })
           .catch((err: unknown) => {
+            // Only update state if this request wasn't cancelled
+            if (isCancelled) return;
             const error = err as { message?: string; response?: { data?: unknown } };
             console.error('Quote error full object:', err);
             console.error('Quote error type:', typeof err);
@@ -193,7 +203,13 @@ export default function DonatePage() {
             setQuoteError(errorMessage);
           });
       }, 500);
-      return () => clearTimeout(timer);
+      
+      // Cleanup function to cancel request if inputs change
+      return () => {
+        clearTimeout(timer);
+        isCancelled = true;
+        abortController.abort();
+      };
     } else {
       setQuote(null);
       setQuoteError(null);
